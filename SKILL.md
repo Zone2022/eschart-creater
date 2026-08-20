@@ -36,7 +36,7 @@ description: Halo 自然光环站内推广周报生成。触发信号：用户�
 
 1. **校验输入**：运行 `scripts/validate_inputs.py`。存在 errors（缺文件/读取失败）→ 停止，向用户列出缺失清单并等待补齐；warnings（文件内部日期与后缀所在周不一致）→ 必须向用户确认后再继续（历史上发生过导错周期）。
 2. **确定性计算**：运行 `scripts/analyze.py`，产出 `scripts/analysis.json`（artifact）。检查其 `meta.warnings`；阅读 stdout JSON 摘要。脚本输出 `plan_matrix`（同一计划包含 w0/w1 双周指标，横轴 ROI 中线 5、纵轴新客率中线 50%）、`prod_sku`（全部 SKU 的双周推广费比，费比=花费÷总成交金额）与 `optimize`（ROI<5 优化清单：本周花费词 ≥500 元 / 人群、计划 ≥1,000 元）。
-3. **业务判断（撰写简评）**：先阅读 `plan_matrix`，以四象限分类为计划评价主线；再阅读各维度宏观聚合与 `optimize`，按 `templates/insight-style.md` 撰写 `scripts/insights.json`（键：scene/keyword/audience/brandzone/product/plan/optimize/actions；前六键为 `{"t","c"}` 结构化数组，结论需精简；样例见 `templates/insights.example.json`）。关键词、人群后续分析必须围绕计划好坏与调整方向展开；因源表不含计划 ID/计划名，只能按策略分类辅助计划诊断，禁止虚构单计划归因。**所有数字必须来自 analysis.json，禁止编造**。
+3. **业务判断（撰写简评）**：先阅读 `plan_matrix`，以四象限分类为计划评价主线；再阅读各维度宏观聚合与 `optimize`，按 `templates/insight-style.md` 撰写 `scripts/insights.json`（键：scene/keyword/audience/brandzone/product/plan/optimize/actions；前六键为 `{"t","c"}` 结构化数组，结论需精简；样例见 `templates/insights.example.json`）。关键词、人群后续分析必须围绕计划好坏与调整方向展开。优化清单直接使用本周关键词、人群报表中的 `计划ID`、`计划名字`，按“对象 + 具体计划”逐行展示；禁止额外映射表和猜测关联。**所有数字必须来自 analysis.json，禁止编造**。
 4. **渲染**：运行 `scripts/build_report.py`，产出桌面 HTML。输出契约见 `templates/report-contract.json`。
 5. **交付与核对**：向用户展示报告，列出各矩阵象限的计划数量与重点调整计划、优化清单合计规模、待复核点（分类待确认项见 references/classification-tokens.json 的 notes.review_pending）。
 
@@ -57,6 +57,7 @@ description: Halo 自然光环站内推广周报生成。触发信号：用户�
 - 每个矩阵点必须支持鼠标悬停提示，至少显示计划名称、周次、场景、分类、花费、ROI、新客率和象限；不得只依赖编号反查计划。
 - 商品主体板块删除全部概览 KPI 卡，展示商品报表中的所有 SKU，不剔除赠品/积分/购物金等主体；以横向直方图展示本周和上周推广费比。推广费比=花费÷总成交金额，成交金额为 0 时显示“—”。
 - 各维度宏观统计口径与展示保持不变，只重写后续分析段落；关键词、人群分析以计划矩阵中的计划评价与调整方向为主线。
+- 优化清单的每个关键词、人群项必须展示本周源报表中的具体 `计划名字`；本周关键词、人群报表缺少 `计划ID` 或 `计划名字` 时必须中断，不得使用额外映射表。若上周报表缺少计划字段，上周指标仅按同名对象汇总作参考，不伪造上周计划级归属。
 - 报告前两部分固定为核心总览、品销宝，内容保持不变；其后依次为营销场景、计划矩阵、关键词、人群、商品主体、优化清单、下周动作、口径附录。
 - 无"结论速览"独立板块；大盘结论并入营销场景总结；下周动作仅保留 4 条执行建议。
 - 文案为数据分析师口吻（数字+阈值+动作），结论为结构化精简条目，遵循 `templates/insight-style.md`。

@@ -339,11 +339,10 @@ def opt_table(items, kind):
             nr = ''
         plan_links = ''
         if has_plan_link:
-            plans = a.get('associated_plans', [])
-            if not plans:
+            plan_name = a.get('plan_name', '')
+            if not plan_name:
                 fail(f"优化清单的{a['name']}缺少关联计划", code=3)
-            plan_links = '<td class="opt-plan-links">' + '<br>'.join(
-                f'<span title="{attr(p)}">{html_lib.escape(p)}</span>' for p in plans) + '</td>'
+            plan_links = f'<td class="opt-plan-links"><span title="{attr(plan_name)}">{html_lib.escape(plan_name)}</span></td>'
         rows += f'''<tr title="{a['name']} ｜ 本周成交 {money(a['g1'])} 元">
       <td style="font-weight:600"><span title="{a['name']}">{cut(a['name'], 26)}</span></td>
       <td>{tag(a['cat']) if a['cat'] else ''}</td>
@@ -549,7 +548,7 @@ html = f'''<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta n
 <div class="grid g4">{kw_cards}</div>
 <div class="card reveal" style="margin-top:14px">
 <h3>计划导向诊断</h3>
-<div class="note">关键词源表不含计划 ID/计划名，不做逐词因果归因；ROI&lt;5 优化清单按本周关联计划映射，逐行展示实际计划名称并给出调价、匹配与否词方向。</div>
+<div class="note">ROI&lt;5 优化清单直接使用本周关键词报表的计划ID、计划名字，按“关键词 + 具体计划”逐行展示并给出调价、匹配与否词方向。</div>
 {render_insight(INS['keyword'])}
 </div>
 </section>
@@ -558,7 +557,7 @@ html = f'''<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta n
 <div class="grid g3">{au_cards}</div>
 <div class="card reveal" style="margin-top:14px">
 <h3>计划导向诊断</h3>
-<div class="note">人群源表不含计划 ID/计划名，不做逐人群因果归因；ROI&lt;5 优化清单按本周关联计划映射，逐行展示实际计划名称并给出圈选、出价与素材方向。</div>
+<div class="note">ROI&lt;5 优化清单直接使用本周人群报表的计划ID、计划名字，按“人群 + 具体计划”逐行展示并给出圈选、出价与素材方向。</div>
 <div class="note" style="margin-top:10px"><b>人群包评价标准（8 月方案）：</b>合格线 = 单项 ROI≥5；<b>拉新类包</b>需同时满足 新客率≥50% 且 ROI≥5；<b>竞品拦截人群</b>按「首单转化率 + 新客客单价 + 30 天复购率」三件套评估（周报以新客率/新客成本代理），不单看短期 ROI；<b>品牌资产人群</b>看 ROI 与承接客单价。</div>
 {render_insight(INS['audience'], 'callout')}
 </div>

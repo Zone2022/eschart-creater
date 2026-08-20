@@ -127,6 +127,17 @@ def merge_full(d1, d0, key):
     return m
 
 
+def merge_current_plan_with_last_object(d1, d0, name_col):
+    """本周含计划字段、上周仅对象粒度时，保留本周对象+计划粒度；上周仅作对象级参考。"""
+    plan_key = [name_col, '计划ID', '计划名字']
+    g1 = d1.groupby(plan_key, as_index=False)[NUM_COLS].sum()
+    g0 = d0.groupby(name_col, as_index=False)[NUM_COLS].sum()
+    m = pd.merge(g1, g0, on=name_col, how='left', suffixes=('_1', '_0')).fillna(0)
+    m['spend_sum'] = m['花费_1'] + m['花费_0']
+    m['last_object_level'] = True
+    return m
+
+
 def plan_quadrant(roi, new_rate):
     """按 ROI=5、新客率=50% 将计划放入推广波士顿矩阵。"""
     if roi is None or new_rate is None:
@@ -257,6 +268,12 @@ def build_optimize(m, name_col, kind):
         item = {'name': str(r[name_col]), 'cat': cat, 'sp1': sp1, 'g1': g1, 'roi1': roi1,
                 'sp0': sp0, 'g0': g0, 'roi0': _roi(g0, sp0),
                 'sp_chg': (sp1 / sp0 - 1) * 100 if sp0 else None}
+        if kind in ('kw', 'au'):
+            plan_name = str(r.get('计划名字', '')).strip()
+            if not plan_name or plan_name.lower() == 'nan':
+                fail(f'优化清单的{item["name"]}缺少本周报表中的计划名字，无法展示对应具体计划', code=2)
+            item['plan_name'] = plan_name
+            item['plan_id'] = str(r.get('计划ID', '')).strip()
         if kind == 'au':
             nr = (float(r['成交新客数_1']) / float(r['成交人数_1'])) if float(r['成交人数_1']) else None
             item['new_rate'] = nr
@@ -324,7 +341,12 @@ def main():
         d0, d1 = kw0[kw0['分类'] == cat], kw1[kw1['分类'] == cat]
         kw_cat[cat] = {'w0': agg(d0), 'w1': agg(d1),
                        'n0': int(d0['词名字/词包名字'].nunique()), 'n1': int(d1['词名字/词包名字'].nunique())}
-    kw_m = merge_full(kw1, kw0, '词名字/词包名字')
+    kw_plan_key = ['词名字/词包名字', '计划ID', '计划名字']
+    if not set(['计划ID', '计划名字']).issubset(kw1.columns):
+        fail('本周关键词报表缺少计划ID或计划名字，无法生成带具体计划的优化清单')
+    kw_m = (merge_full(kw1, kw0, kw_plan_key)
+            if set(['计划ID', '计划名字']).issubset(kw0.columns)
+            else merge_current_plan_with_last_object(kw1, kw0, '词名字/词包名字'))
     name2cat = pd.concat([kw0[['词名字/词包名字', '分类']], kw1[['词名字/词包名字', '分类']]]) \
         .drop_duplicates('词名字/词包名字').set_index('词名字/词包名字')['分类'].to_dict()
     kw_m['分类'] = kw_m['词名字/词包名字'].map(name2cat)
@@ -369,7 +391,12 @@ def main():
     prm = merge_full(pr1, pr0, '主体名称')
     prod_sku = build_product_sku(prm)
 
-    au_all = merge_full(au1, au0, '人群名字')
+    au_plan_key = ['人群名字', '计划ID', '计划名字']
+    if not set(['计划ID', '计划名字']).issubset(au1.columns):
+        fail('本周人群报表缺少计划ID或计划名字，无法生成带具体计划的优化清单')
+    au_all = (merge_full(au1, au0, au_plan_key)
+              if set(['计划ID', '计划名字']).issubset(au0.columns)
+              else merge_current_plan_with_last_object(au1, au0, '人群名字'))
     au_all['分类'] = au_all['人群名字'].apply(classify_aud)
     plan_matrix = build_plan_matrix(pm)
     optimize = {

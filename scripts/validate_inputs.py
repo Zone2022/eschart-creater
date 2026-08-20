@@ -53,6 +53,10 @@ for tag, role in [(this, '本周'), (last, '上周')]:
             if fname.endswith('.csv'):
                 df = pd.read_csv(fpath, encoding='gbk', nrows=5)
                 item['cols'] = len(df.columns)
+                if role == '本周' and fname.startswith(('关键词报表_', '人群报表_')):
+                    missing_plan_cols = {'计划ID', '计划名字'} - set(df.columns)
+                    if missing_plan_cols:
+                        res['errors'].append(f'{fname} 缺少用于优化清单计划关联的字段：' + '、'.join(sorted(missing_plan_cols)))
                 v = str(df['日期'].iloc[0]) if '日期' in df.columns else ''
                 m = re.match(r'(\d{8})至(\d{8})', v)
                 if m:
