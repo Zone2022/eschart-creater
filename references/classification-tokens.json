@@ -1,0 +1,13 @@
+{
+  "brand_tokens": ["halo", "自然光环", "光环"],
+  "competitor_tokens": ["竞争", "竞店", "竞品", "法米娜", "法明娜", "farmina", "百利", "instinct", "渴望", "orijen", "爱肯拿", "acana", "鲜朗", "皇家", "royal", "弗列加特", "伯纳天纯", "素力高", "solidgold", "冠能", "proplan", "福摩", "fromm", "荒野", "tasteofthewild", "nowfresh", "纽顿", "openfarm", "diamondcare", "stellachewy", "小佩", "pidan", "petshy", "里兜", "lorde", "ownat", "麦富迪", "城市理享", "大宠爱", "天猫国际", "天猫超市", "萌宠社"],
+  "audience_brand_tokens": ["喜欢我的", "粉丝", "老客", "预流失", "品专", "小红书", "领券", "深度行为", "halo", "自然光环", "光环", "品牌a", "品牌i"],
+  "gift_tokens": ["赠品", "会员积分", "购物金", "满赠礼"],
+  "notes": {
+    "brand_tokens": "含任一 token（大小写不敏感）→ 品牌词/品牌人群",
+    "competitor_tokens": "前 3 个（竞争/竞店/竞品）为动作词，仅用于人群与计划分类；关键词分类从第 4 个起用品牌 token",
+    "audience_brand_tokens": "人群/计划名称含任一 → 品牌人群",
+    "gift_tokens": "商品主体名称含任一 → 赠品/权益类，剔除出主品分析并单列合计",
+    "review_pending": ["自然之光（未含品牌 token，归行业词，待业务确认是否品牌误写）", "365天/180天无成交店铺潜客（归行业人群）", "达摩盘:成猫健美最近1年加购过的人（归行业人群）", "店铺人群资产转化_竞店重合（按'竞店重合'归竞品人群）"]
+  }
+}

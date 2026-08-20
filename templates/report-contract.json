@@ -1,0 +1,52 @@
+{
+  "report": {
+    "title_pattern": "Halo自然光环 · 站内推广周报 {this_start}至{this_end}",
+    "filename_pattern": "Halo站内推广周报_{this_start}至{this_end_compact}.html",
+    "output_dir": "C:\\Users\\24190\\Desktop",
+    "branding": {
+      "hero_line": "出品：Halo中国 ｜ 模型：{model_name}",
+      "footer": "Halo 自然光环 · 站内推广周度汇报 ｜ {this_start} 至 {this_end} ｜ 出品：Halo中国 ｜ 模型：{model_name} ｜ 品牌配色遵循 Halo VI GUIDE 2025",
+      "theme": "Halo 紫色 VI（--purple:#592688 等 CSS 变量，沿用模板的卡片/sticky 导航/countup/reveal 动效）"
+    },
+    "sections": [
+      {"id": "overview", "nav": "核心总览", "overline": "01 · OVERVIEW", "content": "10 张 KPI 卡（花费/成交/ROI/新客率/成交新客数/单个新客成本/成交笔数/点击量/CTR/CPC），全部带周环比 chip 与上周值"},
+      {"id": "brandzone", "nav": "品销宝", "overline": "02 · BRAND ZONE", "content": "7 张 KPI 卡（搜索量/展现量/点击量/进店访客数/成交金额/成交笔数/客单价）+ 简评 insight；内容不变，仅前置"},
+      {"id": "scene", "nav": "营销场景", "overline": "03 · SCENES", "content": "5 场景对比表（花费条形图+花费/成交/ROI/CPC/CTR/新客率两期对比）+ 总结 insight（含大盘结论：总盘花费/成交/ROI、拉新表现、场景分化）"},
+      {"id": "plan", "nav": "计划矩阵", "overline": "04 · CAMPAIGN MATRIX", "content": "计划级双周 ROI×新客率波士顿矩阵：横轴 ROI 中线 5、纵轴新客率中线 50%，本周/上周按钮切换且共用坐标尺度；同一计划点位平滑移动，新增/退出淡入淡出；悬停点位提示计划名称及当周指标；同步切换计划明细表"},
+      {"id": "keyword", "nav": "关键词", "overline": "05 · KEYWORDS", "content": "4 分类卡（品牌词/竞品词/行业词/智能词包，宏观统计不变）+ 计划导向简评；优化清单按本周映射文件展示实际关联计划名，不写成逐词归因"},
+      {"id": "audience", "nav": "人群", "overline": "06 · AUDIENCES", "content": "3 分类卡（品牌/竞品/行业人群，宏观统计不变）+ 计划导向简评；优化清单按本周映射文件展示实际关联计划名，不写成逐人群归因"},
+      {"id": "product", "nav": "商品主体", "overline": "07 · PRODUCTS", "content": "删除全部概览 KPI；以横向直方图展示商品报表全部 SKU 的本周/上周推广费比（花费÷总成交金额），成交为 0 显示—；附费比分布与调整简评"},
+      {"id": "optimize", "nav": "优化清单", "overline": "08 · OPTIMIZE", "content": "ROI<5 优化清单：3 张卡（关键词/人群包/计划），入选=本周花费≥500 元（词）/≥1,000 元（人群、计划）且 ROI<5；关键词、人群项必须列本周映射文件中配置的关联计划（实际计划名）；其余列为 名称/分类/本周花费/花费环比/本周ROI/上周ROI/（人群与计划含新客率）/评价与动作；末尾汇总 callout（insights.optimize）"}
+    ],
+    "insight_format": "v3.3 起 scene/keyword/audience/brandzone/product/plan 为结构化数组 [{\"t\": 小标题, \"c\": 内容}]（3~4 条精简条目），optimize 为字符串",
+    "plan_matrix": {
+      "x_axis": "ROI",
+      "x_midline": 5,
+      "y_axis": "新客率",
+      "y_midline": "50%",
+      "quadrants": ["明星计划", "效率计划", "拉新潜力", "待调整"],
+      "missing_new_rate": "待观察",
+      "weeks": ["w1 本周", "w0 上周"],
+      "interaction": ["按钮切换周次", "点位平滑移动", "新增/退出淡入淡出", "鼠标悬停显示计划名称和当周指标", "计划明细表同步切换"]
+    },
+    "product_fee_chart": {
+      "scope": "商品报表全部 SKU",
+      "metric": "推广费比=花费÷总成交金额",
+      "weeks": ["本周", "上周"],
+      "zero_gmv": "—",
+      "chart": "横向直方图",
+      "overview_kpis": false
+    },
+    "hard_rules": [
+      "无「结论速览」独立板块；大盘结论并入营销场景总结",
+      "不得计算、展示或引用偏移指数、偏移标签、偏移调整算法或双因素拆解",
+      "计划矩阵必须支持本周/上周切换、点位平滑移动与悬停计划提示",
+      "商品主体不得显示概览 KPI，必须覆盖全部 SKU 并按花费÷总成交金额展示双周费比",
+      "优化清单中的每个关键词和人群项必须展示至少一个映射文件配置的实际关联计划名；映射计划必须出现于双周计划报表，不得虚构逐对象归因",
+      "HTML 不得生成下周动作或口径附录板块及其导航",
+      "货品全站推广 ROI 一律带 ※ 标注",
+      "ROI>=6 橙色加粗、<4 绿色加粗、其余深色（颜色编码见模板）",
+      "环比 chip：上升=▲橙底、下降=▼绿底、新增=灰底"
+    ]
+  }
+}

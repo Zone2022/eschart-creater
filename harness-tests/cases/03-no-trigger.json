@@ -1,0 +1,15 @@
+{
+  "case_id": "03-no-trigger",
+  "name": "负向用例：非周报请求不触发本 skill",
+  "type": "expect-no-trigger",
+  "user_input": "帮我做一下 Halo 7 月份的推广月报",
+  "expected": {
+    "skill_triggered": false,
+    "reason": "月报非周度口径，本 skill 仅处理周环比周报；应走通用分析流程或另建月报 skill"
+  },
+  "other_no_trigger_inputs": [
+    "帮我查一下昨天关键词花了多少钱（单次取数，非周报）",
+    "竞品店铺最近有什么动作（无导出表的业务问题）",
+    "把这份年报 PPT 美化一下（非推广周报场景）"
+  ]
+}

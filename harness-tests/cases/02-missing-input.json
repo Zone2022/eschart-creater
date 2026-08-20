@@ -1,0 +1,25 @@
+{
+  "case_id": "02-missing-input",
+  "name": "缺失输入边界用例：上周关键词报表缺失",
+  "type": "boundary",
+  "user_input": "帮我出这周的品牌周报",
+  "preconditions": {
+    "data_dir": "C:\\Users\\24190\\Desktop\\推广文件",
+    "files": "本周 6 个文件齐全，上周缺少 关键词报表_<上周一>.csv"
+  },
+  "expected": {
+    "skill_triggered": true,
+    "steps": ["validate_inputs 失败并中断"],
+    "assertions": [
+      "validate_inputs.py 退出码 2",
+      "stdout JSON ok=false 且 errors 包含缺失文件名",
+      "流程中断：不运行 analyze.py、不产出 HTML",
+      "向用户输出缺失文件清单并请求补齐，禁止编造缺失周的数据"
+    ]
+  },
+  "variants": [
+    "文件存在但内部日期与后缀所在周不一致 → analyze 记 warnings，必须转人工确认后才继续",
+    "CSV 非 GBK 编码 → 读取失败中断并提示重新导出",
+    "insights.json 缺失或缺键 → build_report.py 退出码 3 并提示缺哪些键"
+  ]
+}

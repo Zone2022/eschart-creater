@@ -1,0 +1,30 @@
+{
+  "case_id": "01-standard-weekly",
+  "name": "标准正向用例：两周数据齐全，生成周报",
+  "type": "trigger",
+  "user_input": "新一周的数据已经放到推广文件目录了，帮我出这周的品牌周报",
+  "preconditions": {
+    "data_dir": "C:\\Users\\24190\\Desktop\\推广文件",
+    "files": "两周 × 6 类报表齐全，另有本周关键词人群计划映射_YYYYMMDD.csv（GBK，列为对象类型/对象名称/计划名称）；文件名后缀为对应周周一（如 20260803 / 20260727）"
+  },
+  "expected": {
+    "skill_triggered": true,
+    "steps": ["validate_inputs 通过", "analyze 产出 analysis.json", "撰写 insights.json", "build_report 产出桌面 HTML"],
+    "assertions": [
+      "validate_inputs.py 退出码 0 且 stdout JSON ok=true",
+      "analysis.json 含 meta/total/scene/kw_cat/au_cat/px/plan_cat/plan_matrix/prod_sku/optimize 键，且不含 anomalies/decomp/prod_main/prod_gift_sum",
+      "analysis.json meta.this.tag 为最新周一周后缀",
+      "optimize 中关键词项本周花费均 ≥500、人群与计划项均 ≥1000，且各项本周 ROI 均 <5",
+      "optimize 关键词与人群项均含非空 associated_plans（映射文件中的实际计划名数组）与 plan_association_basis，且映射计划出现于双周计划报表；人群项另含 new_rate 字段与按分类评价标准生成的 action",
+      "plan_matrix 每个计划含 w0/w1 双周指标，并按 ROI=5、新客率=50% 分类；单周未投放标记未投放，成交人数为 0 时列待观察",
+      "HTML 含本周/上周矩阵切换按钮、matrix-point 双周坐标、平移动画逻辑和自定义悬停提示；计划明细表同步切换",
+      "prod_sku 覆盖商品报表全部主体，w0/w1 均含 spend/gmv/fee_ratio，gmv=0 时 fee_ratio=null",
+      "商品主体 HTML 不含概览 KPI 卡或赠品剔除说明，含所有 SKU 的本周/上周费比横向直方图",
+      "输出 HTML 含 8 个板块，前两部分为核心总览与品销宝，含 04 · CAMPAIGN MATRIX 和 08 · OPTIMIZE，且无『结论速览』『下周动作』『口径附录』",
+      "HTML 不含偏移指数、偏移标签、偏移调整算法或双因素拆解",
+      "HTML 中货品全站推广 ROI 带 ※ 标注",
+      "insights.json 的 scene/keyword/audience/brandzone/product/plan 为 {t,c} 结构化数组，不再要求 actions",
+      "所有数字与 analysis.json 一致"
+    ]
+  }
+}

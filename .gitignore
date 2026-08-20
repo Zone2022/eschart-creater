@@ -1,0 +1,4 @@
+scripts/__pycache__/
+scripts/analysis.json
+scripts/insights.json
+*.pyc
