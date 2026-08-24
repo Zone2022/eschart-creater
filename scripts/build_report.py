@@ -40,10 +40,11 @@ for k in ['scene', 'keyword', 'audience', 'brandzone', 'product', 'plan']:
             fail(f'insights.json 的 {k} 数组元素必须为 {{"t": 小标题, "c": 内容}} 结构', code=3)
     elif not isinstance(v, str):
         fail(f'insights.json 的 {k} 必须为字符串或结构化数组', code=3)
-def render_insight(v, cls='insight'):
+def render_insight(v, cls='insight', exclude_titles=()):
     """结构化结论：数组→带小标题的精简条目列表；字符串→兼容旧版单段文案"""
     if isinstance(v, list):
-        lis = ''.join(f'<li><b>{it["t"]}：</b>{it["c"]}</li>' for it in v)
+        items = [it for it in v if it['t'] not in exclude_titles]
+        lis = ''.join(f'<li><b>{it["t"]}：</b>{it["c"]}</li>' for it in items)
         return f'<div class="{cls}"><ul class="take">{lis}</ul></div>'
     return f'<div class="{cls}">{v}</div>'
 
@@ -124,6 +125,7 @@ AC = J['au_cat']
 PX = J['px']
 PC = J['plan_cat']
 PLAN_MATRIX = J['plan_matrix']
+PLAN_VALUE = J.get('plan_value', {})
 
 # ---------------- 01 核心总览 ----------------
 kpis = [
@@ -210,7 +212,13 @@ def matrix_html(items):
         iy = initial['y'] if initial['valid'] else mt + ph
         d1, d0 = a['w1'], a['w0']
         color1 = qcolors.get(d1['quadrant'], '#978DA3')
-        circles += f'''<g class="matrix-point" transform="translate({ix:.1f} {iy:.1f})"
+        trend = ''
+        if d0['roi'] is not None and d1['roi'] is not None and d0['new_rate'] is not None and d1['new_rate'] is not None:
+            if d1['roi'] - d0['roi'] < -1 and d1['new_rate'] - d0['new_rate'] < -0.20:
+                trend = ' trend-down'
+            elif d1['roi'] - d0['roi'] > 1 and d1['new_rate'] - d0['new_rate'] > 0.20:
+                trend = ' trend-up'
+        circles += f'''<g class="matrix-point{trend}" transform="translate({ix:.1f} {iy:.1f})"
           data-name="{attr(a['name'])}" data-scene="{attr(a['scene'])}" data-cat="{attr(a['cat'])}"
           data-x0="{coords['w0']['x'] if coords['w0']['valid'] else ''}" data-y0="{coords['w0']['y'] if coords['w0']['valid'] else ''}" data-valid0="{int(coords['w0']['valid'])}"
           data-x1="{coords['w1']['x'] if coords['w1']['valid'] else ''}" data-y1="{coords['w1']['y'] if coords['w1']['valid'] else ''}" data-valid1="{int(coords['w1']['valid'])}"
@@ -228,8 +236,7 @@ def matrix_html(items):
             color = qcolors.get(d['quadrant'], '#978DA3')
             table_bodies[wk] += f'''<tr><td class="r">{idx}</td><td style="font-weight:600" title="{attr(a['name'])}">{html_lib.escape(cut(a['name'], 30))}</td>
               <td>{tag(a['cat'])}</td><td class="r">{money(d['spend'])}</td><td class="r">{roi_text}{star}</td>
-              <td class="r">{new_text}</td><td><span class="matrix-tag" style="--q:{color}">{d['quadrant']}</span></td>
-              <td style="font-size:12.3px;color:#5D5568">{d['action']}</td></tr>'''
+              <td class="r">{new_text}</td><td><span class="matrix-tag" style="--q:{color}">{d['quadrant']}</span></td></tr>'''
         pending_counts['w0'] = pending_counts.get('w0', 0) + int(d0['active'] and not coords['w0']['valid'])
         pending_counts['w1'] = pending_counts.get('w1', 0) + int(d1['active'] and not coords['w1']['valid'])
     svg = f'''<svg class="matrix-svg" viewBox="0 0 {w} {h}" role="img" aria-label="推广计划波士顿矩阵">
@@ -253,9 +260,9 @@ def matrix_html(items):
     controls = f'''<div class="matrix-controls" role="group" aria-label="选择计划矩阵周次">
       <button type="button" class="matrix-week active" data-week="w1" aria-pressed="true">本周 {period1}</button>
       <button type="button" class="matrix-week" data-week="w0" aria-pressed="false">上周 {period0}</button>
-      <span class="matrix-hint">点击切换周次，点位将平滑移动；鼠标悬停点位查看计划名称与指标</span></div>'''
+      <span class="matrix-hint">点击切换周次；红框=ROI 下降&gt;1 且新客率下降&gt;20pp，蓝框为相反方向的同幅度上升</span></div>'''
     table = (f'<table class="matrix-table"><thead><tr><th class="r">编号</th><th>计划</th><th>分类</th><th class="r">当周花费</th>'
-             '<th class="r">ROI</th><th class="r">新客率</th><th>象限</th><th style="width:31%">调整方向</th></tr></thead>'
+             '<th class="r">ROI</th><th class="r">新客率</th><th>象限</th></tr></thead>'
              f'<tbody data-week="w1">{table_bodies["w1"]}</tbody><tbody data-week="w0" hidden>{table_bodies["w0"]}</tbody></table>')
     pending = (f'<div class="note matrix-pending" data-pending0="{pending_counts.get("w0", 0)}" '
                f'data-pending1="{pending_counts.get("w1", 0)}"></div>')
@@ -263,6 +270,37 @@ def matrix_html(items):
 
 
 plan_matrix_html = matrix_html(PLAN_MATRIX)
+
+
+def plan_value_rows(items):
+    if not items:
+        return '<tr><td colspan="7" class="na" style="text-align:center">无符合条件的计划</td></tr>'
+    rows = ''
+    for idx, a in enumerate(items, 1):
+        score_color = '#9B4A45' if a['score'] < 0 else '#467A3C'
+        rows += f'''<tr><td class="r">{idx}</td><td style="font-weight:600" title="{attr(a['name'])}">{html_lib.escape(cut(a['name'], 30))}</td>
+          <td>{a['target_group']}</td><td class="r">{a['target_weight']:.1f}</td><td class="r">{money(a['revenue'])}</td>
+          <td class="r">{a['new_rate'] * 100:.1f}%</td><td class="r" style="font-weight:800;color:{score_color}">{money(a['score'])}</td></tr>'''
+    return rows
+
+
+def plan_value_section(data):
+    if not data:
+        return ''
+    formula = html_lib.escape(data['formula'])
+    eligible = data.get('eligible_count', 0)
+    excluded = data.get('excluded_count', 0)
+    head = ('<thead><tr><th class="r">排名</th><th>计划</th><th>名称识别</th><th class="r">目标权重</th>'
+            '<th class="r">推广收入</th><th class="r">新客率</th><th class="r">评价指标</th></tr></thead>')
+    highlights = f'''<div class="card reveal"><h3>业务亮点 <span style="font-size:12px;font-weight:600;color:#978DA3">指标最高 3 个计划</span></h3>
+      <table>{head}<tbody>{plan_value_rows(data.get('highlights', []))}</tbody></table></div>'''
+    needs_adjustment = f'''<div class="card reveal"><h3>需要调整 <span style="font-size:12px;font-weight:600;color:#978DA3">评价指标 &lt; 0</span></h3>
+      <table>{head}<tbody>{plan_value_rows(data.get('needs_adjustment', []))}</tbody></table></div>'''
+    return f'''<div class="note" style="margin:14px 0 10px"><b>计划贡献评价（本周）：</b>{formula}。毛利要求率=50%，边际缓冲=0；名称识别 US猫/US狗/CN猫/CN狗的目标权重依次为 1.5/1.8/1.8/2.0。已计算 {eligible} 个计划，未命中名称分类或无新客率的 {excluded} 个计划不参与计算。</div>
+      <div class="grid g2">{highlights}{needs_adjustment}</div>'''
+
+
+plan_value_html = plan_value_section(PLAN_VALUE)
 
 kw_cards = ''.join([
     cat_card('品牌词', KC['品牌词'], '个词/包', '（补充承接，主承接=品销宝）'),
@@ -284,6 +322,7 @@ PROD_SKU = J['prod_sku']
 
 def product_fee_chart(items):
     """所有 SKU 推广费比横向直方图；费比=花费÷总成交金额。"""
+    items = [a for a in items if any((d['fee_ratio'] or 0) > 0 for d in (a['w0'], a['w1']))]
     current_ratios = [a['w1']['fee_ratio'] for a in items if a['w1']['fee_ratio'] is not None]
     all_ratios = [d['fee_ratio'] for a in items for d in (a['w0'], a['w1']) if d['fee_ratio'] is not None]
     scale = max(max(current_ratios or all_ratios, default=0), 0.10)
@@ -328,7 +367,7 @@ def opt_table(items, kind):
             + '<th class="r">本周花费</th><th class="r">花费环比</th>'
             '<th class="r">本周ROI</th><th class="r">上周ROI</th>'
             + ('<th class="r">新客率³</th>' if show_new_rate else '')
-            + '<th style="width:30%">评价与动作</th></tr></thead>')
+            + '</tr></thead>')
     rows = ''
     for a in items:
         spc = chip(a['sp1'], a['sp0']) if a['sp0'] else '<span class="chip neu">新增</span>'
@@ -352,13 +391,12 @@ def opt_table(items, kind):
       <td class="r">{roi_span(a['roi1'])}</td>
       <td class="r">{roi_span2(a['roi0'])}</td>
       {nr}
-      <td style="font-size:12.3px;color:#5D5568">{a['action']}</td>
     </tr>'''
     return f'<table>{head}<tbody>{rows}</tbody></table>'
 
 
 def opt_card(kind, title, unit):
-    items = OPT[kind]
+    items = [i for i in OPT[kind] if i['sp0'] > 0]
     sp = sum(i['sp1'] for i in items)
     return (f'<div class="card reveal"><h3>{title}'
             f'<span style="font-size:12px;font-weight:600;color:#978DA3;margin-left:8px">{len(items)} {unit}，合计 {wan(sp)} 元</span></h3>'
@@ -390,7 +428,7 @@ ul.take li::before{content:"";position:absolute;left:2px;top:13px;width:6px;heig
 .matrix-week:hover{border-color:#592688}.matrix-week.active{background:#592688;color:#fff;border-color:#592688;box-shadow:0 5px 14px #59268828}
 .matrix-hint{font-size:11.5px;color:#978DA3;margin-left:4px}
 .matrix-shell{position:relative}.matrix-svg{display:block;width:100%;height:auto;margin:4px 0 14px;border:1px solid var(--border,#E9E3F0);border-radius:12px;background:#fff}
-.matrix-point{cursor:help;transition:opacity .3s ease}.matrix-point circle{transition:fill .35s ease,stroke .2s ease;stroke:#fff;stroke-width:2}.matrix-point:hover circle{stroke:#2A2333;stroke-width:3}
+.matrix-point{cursor:help;transition:opacity .3s ease}.matrix-point circle{transition:fill .35s ease,stroke .2s ease;stroke:#fff;stroke-width:2}.matrix-point:hover circle{stroke:#2A2333;stroke-width:3}.matrix-point.trend-down circle,.matrix-point.trend-down:hover circle{stroke:#E53935;stroke-width:4}.matrix-point.trend-up circle,.matrix-point.trend-up:hover circle{stroke:#2979FF;stroke-width:4}
 .matrix-tooltip{position:absolute;z-index:10;display:none;max-width:340px;padding:9px 11px;border-radius:9px;background:#2A2333;color:#fff;box-shadow:0 10px 28px #2A233344;font-size:12px;line-height:1.55;pointer-events:none;transform:translate(12px,12px)}
 .matrix-tooltip b{display:block;font-size:12.5px;margin-bottom:2px}.matrix-tooltip.show{display:block}
 .matrix-table tbody[hidden]{display:none}.matrix-pending:empty{display:none}
@@ -523,7 +561,7 @@ html = f'''<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta n
 <div class="grid g3" style="margin-top:14px">
 {px_g3_html}
 </div>
-{render_insight(INS['brandzone'])}
+{render_insight(INS['brandzone'], exclude_titles=('承接',))}
 </section>
 
 <section id="scene"><div class="shead reveal"><div class="overline">03 · SCENES</div><h2><svg class="sic" viewBox="0 0 24 24" fill="none" stroke="#592688" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l9 5-9 5-9-5 9-5z"/><path d="M3 13l9 5 9-5"/></svg>营销场景表现</h2><div class="h2sub">条形为花费规模（灰=上周，紫=本周）；※ 货品全站推广成交含免费流量部分，其 ROI 与纯付费场景不可直接对比，仅作参考</div></div>
@@ -533,14 +571,15 @@ html = f'''<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta n
 <tbody>{scene_rows}</tbody>
 </table>
 <div class="legend"><span><i style="background:#592688"></i>本周</span><span><i style="background:#C4BBD1"></i>上周</span></div>
-{render_insight(INS['scene'])}
+{render_insight(INS['scene'], exclude_titles=('调整方向', '建议', '行动建议'))}
 </div>
 </section>
 
 <section id="plan"><div class="shead reveal"><div class="overline">04 · CAMPAIGN MATRIX</div><h2><svg class="sic" viewBox="0 0 24 24" fill="none" stroke="#592688" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13M8 12h13M8 18h13"/><circle cx="4" cy="6" r="1.2"/><circle cx="4" cy="12" r="1.2"/><circle cx="4" cy="18" r="1.2"/></svg>推广计划波士顿矩阵</h2><div class="h2sub">以计划为评价中心：横轴 ROI（中线=5），纵轴新客率（中线=50%）；※ 全站推广成交含免费流量，ROI 仅作参考</div></div>
 <div class="card reveal">
 {plan_matrix_html}
-{render_insight(INS['plan'])}
+{plan_value_html}
+{render_insight(INS['plan'], exclude_titles=('调整方向', '建议', '行动建议'))}
 </div>
 </section>
 
@@ -548,8 +587,8 @@ html = f'''<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta n
 <div class="grid g4">{kw_cards}</div>
 <div class="card reveal" style="margin-top:14px">
 <h3>计划导向诊断</h3>
-<div class="note">ROI&lt;5 优化清单直接使用本周关键词报表的计划ID、计划名字，按“关键词 + 具体计划”逐行展示并给出调价、匹配与否词方向。</div>
-{render_insight(INS['keyword'])}
+<div class="note">ROI&lt;5 优化清单直接使用本周关键词报表的计划ID、计划名字，按“关键词 + 具体计划”逐行展示。</div>
+{render_insight(INS['keyword'], exclude_titles=('调整方向', '建议', '行动建议'))}
 </div>
 </section>
 
@@ -557,20 +596,20 @@ html = f'''<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta n
 <div class="grid g3">{au_cards}</div>
 <div class="card reveal" style="margin-top:14px">
 <h3>计划导向诊断</h3>
-<div class="note">ROI&lt;5 优化清单直接使用本周人群报表的计划ID、计划名字，按“人群 + 具体计划”逐行展示并给出圈选、出价与素材方向。</div>
+<div class="note">ROI&lt;5 优化清单直接使用本周人群报表的计划ID、计划名字，按“人群 + 具体计划”逐行展示。</div>
 <div class="note" style="margin-top:10px"><b>人群包评价标准（8 月方案）：</b>合格线 = 单项 ROI≥5；<b>拉新类包</b>需同时满足 新客率≥50% 且 ROI≥5；<b>竞品拦截人群</b>按「首单转化率 + 新客客单价 + 30 天复购率」三件套评估（周报以新客率/新客成本代理），不单看短期 ROI；<b>品牌资产人群</b>看 ROI 与承接客单价。</div>
-{render_insight(INS['audience'], 'callout')}
+{render_insight(INS['audience'], 'callout', ('调整方向', '建议', '行动建议'))}
 </div>
 </section>
 
 <section id="product"><div class="shead reveal"><div class="overline">07 · PRODUCTS</div><h2><svg class="sic" viewBox="0 0 24 24" fill="none" stroke="#592688" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8l9-5 9 5v8l-9 5-9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/></svg>商品主体 · SKU 费比</h2><div class="h2sub">展示商品报表全部 SKU；推广费比 = 花费 ÷ 总成交金额，本周与上周并列显示；成交金额为 0 时记为“—”</div></div>
 <div class="card reveal">
 {prod_fee_chart_html}
-{render_insight(INS['product'])}
+{render_insight(INS['product'], exclude_titles=('调整方向', '建议', '行动建议'))}
 </div>
 </section>
 
-<section id="optimize"><div class="shead reveal"><div class="overline">08 · OPTIMIZE</div><h2><svg class="sic" viewBox="0 0 24 24" fill="none" stroke="#592688" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4.5 4.5 0 0 0-6.1 5.6L3 17.4V21h3.6l5.5-5.6a4.5 4.5 0 0 0 5.6-6.1l-2.6 2.6-2.1-2.1 2.6-2.6z"/></svg>ROI&lt;5 优化清单</h2><div class="h2sub">判定标准（8 月方案）：单项合格线 ROI≥5；以下为本周花费≥500 元（词）/≥1,000 元（人群、计划）且 ROI&lt;5 的对象，含评价与动作</div></div>
+<section id="optimize"><div class="shead reveal"><div class="overline">08 · OPTIMIZE</div><h2><svg class="sic" viewBox="0 0 24 24" fill="none" stroke="#592688" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4.5 4.5 0 0 0-6.1 5.6L3 17.4V21h3.6l5.5-5.6a4.5 4.5 0 0 0 5.6-6.1l-2.6 2.6-2.1-2.1 2.6-2.6z"/></svg>ROI&lt;5 优化清单</h2><div class="h2sub">判定标准（8 月方案）：单项合格线 ROI≥5；以下为本周花费≥500 元（词）/≥1,000 元（人群、计划）且 ROI&lt;5 的对象</div></div>
 {opt_html}
 <div class="note">³ 新客率 = 成交新客数 ÷ 成交人数（人群维度口径）；人群包按分类适用不同评价标准——拉新类包需 新客率≥50% 且 ROI≥5；竞品拦截人群以三件套评估、新客率作代理指标；品牌人群看 ROI 与承接客单价。</div>
 <div class="callout" style="margin-top:12px">{INS['optimize']}</div>

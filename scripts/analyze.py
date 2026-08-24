@@ -161,7 +161,38 @@ def plan_matrix_action(quadrant):
     }[quadrant]
 
 
-def _plan_week(r, suffix):
+# 计划贡献评价：仅对名称可识别为 US/CN × 猫/狗 的计划计算。
+GROSS_MARGIN_REQUIRED = 0.50
+MARGINAL_BUFFER = 0.00
+NEW_CUSTOMER_TARGET_WEIGHTS = {'US猫': 1.5, 'US狗': 1.8, 'CN猫': 1.8, 'CN狗': 2.0}
+
+
+def plan_target_group(name):
+    """复刻业务 Excel：美国→US，否则→CN；猫优先于狗/犬。"""
+    name = str(name)
+    country = 'US' if '美国' in name else 'CN'
+    if '猫' in name:
+        animal = '猫'
+    elif '狗' in name or '犬' in name:
+        animal = '狗'
+    else:
+        animal = ''
+    return country + animal if animal else None
+
+
+def plan_target_weight(name):
+    group = plan_target_group(name)
+    return group, NEW_CUSTOMER_TARGET_WEIGHTS.get(group)
+
+
+def plan_value_score(revenue, spend, new_rate, target_weight):
+    """推广收入×(毛利要求率-边际缓冲)×(新客率×目标权重+1)-2×花费。"""
+    if target_weight is None or new_rate is None:
+        return None
+    return revenue * (GROSS_MARGIN_REQUIRED - MARGINAL_BUFFER) * (new_rate * target_weight + 1) - 2 * spend
+
+
+def _plan_week(r, suffix, plan_name):
     sp = float(r[f'花费_{suffix}'])
     gmv = float(r[f'总成交金额_{suffix}'])
     buyers = float(r[f'成交人数_{suffix}'])
@@ -169,10 +200,13 @@ def _plan_week(r, suffix):
     roi = _roi(gmv, sp)
     new_rate = new_customers / buyers if buyers else None
     quadrant = plan_quadrant(roi, new_rate) if sp > 0 else '未投放'
+    target_group, target_weight = plan_target_weight(plan_name)
     return {
         'active': sp > 0, 'spend': sp, 'gmv': gmv, 'roi': roi, 'new_rate': new_rate,
         'new_customers': new_customers, 'buyers': buyers, 'quadrant': quadrant,
         'action': plan_matrix_action(quadrant) if quadrant != '未投放' else '当周未投放',
+        'target_group': target_group, 'target_weight': target_weight,
+        'value_score': plan_value_score(gmv, sp, new_rate, target_weight) if sp > 0 else None,
     }
 
 
@@ -183,9 +217,10 @@ def build_plan_matrix(m):
         sp1, sp0 = float(r['花费_1']), float(r['花费_0'])
         if sp1 <= 0 and sp0 <= 0:
             continue
-        w0, w1 = _plan_week(r, '0'), _plan_week(r, '1')
+        plan_name = str(r['计划名字'])
+        w0, w1 = _plan_week(r, '0', plan_name), _plan_week(r, '1', plan_name)
         out.append({
-            'key': str(r['计划key']), 'name': str(r['计划名字']),
+            'key': str(r['计划key']), 'name': plan_name,
             'cat': str(r['分类']), 'scene': str(r['场景名字']), 'w0': w0, 'w1': w1,
             # 保留本周扁平字段，兼容简评撰写与既有消费逻辑。
             'sp1': w1['spend'], 'sp0': w0['spend'], 'g1': w1['gmv'], 'g0': w0['gmv'],
@@ -195,6 +230,32 @@ def build_plan_matrix(m):
         })
     out.sort(key=lambda x: (-max(x['sp1'], x['sp0']), x['name']))
     return out
+
+
+def build_plan_value(plan_matrix):
+    """汇总本周计划贡献评价，供报告自动输出 Top3 与负值计划。"""
+    eligible = []
+    excluded = 0
+    for plan in plan_matrix:
+        d = plan['w1']
+        if not d['active'] or d['value_score'] is None:
+            excluded += 1
+            continue
+        eligible.append({
+            'name': plan['name'], 'scene': plan['scene'], 'cat': plan['cat'],
+            'target_group': d['target_group'], 'target_weight': d['target_weight'],
+            'revenue': d['gmv'], 'spend': d['spend'], 'new_rate': d['new_rate'],
+            'score': d['value_score'],
+        })
+    return {
+        'formula': '推广收入×(毛利要求率-边际缓冲)×(新客率×新客目标权重+1)-2×花费',
+        'gross_margin_required': GROSS_MARGIN_REQUIRED,
+        'marginal_buffer': MARGINAL_BUFFER,
+        'weights': NEW_CUSTOMER_TARGET_WEIGHTS,
+        'eligible_count': len(eligible), 'excluded_count': excluded,
+        'highlights': sorted(eligible, key=lambda x: (-x['score'], x['name']))[:3],
+        'needs_adjustment': sorted((x for x in eligible if x['score'] < 0), key=lambda x: (x['score'], x['name'])),
+    }
 
 
 def build_product_sku(m):
@@ -399,6 +460,7 @@ def main():
               else merge_current_plan_with_last_object(au1, au0, '人群名字'))
     au_all['分类'] = au_all['人群名字'].apply(classify_aud)
     plan_matrix = build_plan_matrix(pm)
+    plan_value = build_plan_value(plan_matrix)
     optimize = {
         'kw': build_optimize(kw_m.rename(columns={'词名字/词包名字': 'name'}), 'name', 'kw'),
         'au': build_optimize(au_all.rename(columns={'人群名字': 'name'}), 'name', 'au'),
@@ -428,7 +490,7 @@ def main():
               'px': px, 'plan_cat': plan_cat, 'kw_detail': kw_detail.to_dict('records'),
               'au_top': au_top, 'plan_detail': plan_detail.to_dict('records'),
               'prod_sku': prod_sku,
-              'plan_matrix': plan_matrix, 'optimize': optimize,
+              'plan_matrix': plan_matrix, 'plan_value': plan_value, 'optimize': optimize,
               'plan_total_w0': agg(pl0), 'plan_total_w1': agg(pl1)}
     with open(out_path, 'w', encoding='utf-8') as f:
         json.dump(result, f, ensure_ascii=False, indent=1, default=str)
@@ -437,6 +499,8 @@ def main():
                'total': {k: round(total['w1'][k], 2) if isinstance(total['w1'][k], float) else total['w1'][k]
                          for k in ['花费', '总成交金额', '总成交笔数', '成交新客数']},
                'ROI': {'this': round(total['w1']['ROI'], 2), 'last': round(total['w0']['ROI'], 2)},
+               'plan_value': {'eligible': plan_value['eligible_count'], 'highlights': len(plan_value['highlights']),
+                              'needs_adjustment': len(plan_value['needs_adjustment'])},
                'optimize': {k: {'n': len(v), 'spend': round(sum(i['sp1'] for i in v), 0)}
                             for k, v in optimize.items()},
                'warnings': warnings}
