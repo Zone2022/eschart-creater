@@ -37,6 +37,7 @@
 - `meta`：this/last 两期的 tag（周一日期）、start/end、warnings（数据校验警告）
 - `total` / `scene` / `kw_cat` / `au_cat` / `plan_cat` / `px`：各维度 w0(上周)/w1(本周) 聚合指标
 - `plan_matrix`：计划级推广波士顿矩阵点；每项含 key/name/cat/scene 与 `w0`/`w1`（active/spend/gmv/roi/new_rate/new_customers/buyers/quadrant/action）。双周共用坐标尺度；成交人数为 0 时 quadrant=`待观察`，未投放时 quadrant=`未投放`
+- `plan_value`：本周计划贡献评价。仅使用 `references/plan-product-map.json` 的计划—商品映射，从商品名称识别 US/CN、猫/狗；同计划多商品等额分摊，综合权重为商品目标权重算术平均。输出商品组合识别、商品数、综合权重、Top 3 与指标<0计划
 - `prod_sku`：商品报表全部 SKU，按主体名称汇总；每项含 name 与 `w0`/`w1`（spend/gmv/fee_ratio），其中 fee_ratio=spend÷gmv，gmv=0 时为 null
 - `optimize`：kw/au/plan 三类 ROI<5 优化清单（入选=本周花费词≥500 元 / 人群、计划≥1,000 元且本周 ROI<5；含 cat/sp1/g1/roi1/sp0/roi0/sp_chg/action；人群另含 new_rate，计划另含 new_rate/quadrant）
 - `kw_detail` / `au_top` / `plan_detail`：明细与合计；关键词、人群源表不含计划 ID/计划名，禁止据此构造单计划直接归因

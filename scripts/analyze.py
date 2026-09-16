@@ -5,10 +5,11 @@
 用法：
   python analyze.py [--data-dir DIR] [--this YYYYMMDD] [--last YYYYMMDD] [--out analysis.json]
   不传 --this/--last 时自动识别目录中最新两个日期后缀。
-环境变量：HALO_DATA_DIR 可替代 --data-dir。无密钥需求。
+环境变量：HALO_DATA_DIR 可替代 --data-dir；HALO_PLAN_PRODUCT_MAP 可覆盖计划—商品映射路径。无密钥需求。
 退出码：0 成功；2 输入缺失/校验失败（stderr 输出人类可读错误，stdout 输出 JSON 错误对象）。
 """
 import argparse, glob, json, os, re, sys
+from collections import Counter
 from datetime import datetime, timedelta
 
 import pandas as pd
@@ -161,14 +162,15 @@ def plan_matrix_action(quadrant):
     }[quadrant]
 
 
-# 计划贡献评价：仅对名称可识别为 US/CN × 猫/狗 的计划计算。
+# 计划贡献评价：按“计划—商品”映射中的商品名称识别 US/CN × 猫/狗。
 GROSS_MARGIN_REQUIRED = 0.50
 MARGINAL_BUFFER = 0.00
 NEW_CUSTOMER_TARGET_WEIGHTS = {'US猫': 1.5, 'US狗': 1.8, 'CN猫': 1.8, 'CN狗': 2.0}
+TARGET_GROUP_ORDER = tuple(NEW_CUSTOMER_TARGET_WEIGHTS)
 
 
-def plan_target_group(name):
-    """复刻业务 Excel：美国→US，否则→CN；猫优先于狗/犬。"""
+def product_target_group(name):
+    """从商品名称识别：含“美国”→US，否则→CN；猫优先于狗/犬。"""
     name = str(name)
     country = 'US' if '美国' in name else 'CN'
     if '猫' in name:
@@ -180,9 +182,50 @@ def plan_target_group(name):
     return country + animal if animal else None
 
 
-def plan_target_weight(name):
-    group = plan_target_group(name)
-    return group, NEW_CUSTOMER_TARGET_WEIGHTS.get(group)
+def load_plan_product_map(path):
+    if not os.path.exists(path):
+        fail(f'计划—商品映射文件不存在：{path}')
+    try:
+        data = json.load(open(path, encoding='utf-8'))
+    except Exception as e:
+        fail(f'计划—商品映射文件读取失败：{path}（{e}）')
+    plans = data.get('plans', data)
+    if not isinstance(plans, dict) or not plans:
+        fail('计划—商品映射文件缺少非空 plans 对象')
+    normalized = {}
+    for plan_name, products in plans.items():
+        if not isinstance(products, list) or not products:
+            fail(f'计划—商品映射中的“{plan_name}”没有商品列表')
+        normalized[str(plan_name).strip()] = list(dict.fromkeys(str(p).strip() for p in products if str(p).strip()))
+    return {
+        'source': data.get('source', os.path.basename(path)),
+        'updated': data.get('updated'),
+        'allocation': data.get('allocation', '同一计划内商品等额分摊'),
+        'plans': normalized,
+        'path': os.path.abspath(path),
+    }
+
+
+def product_target_profile(products):
+    recognized = []
+    unrecognized = []
+    for product_name in products:
+        group = product_target_group(product_name)
+        weight = NEW_CUSTOMER_TARGET_WEIGHTS.get(group)
+        if weight is None:
+            unrecognized.append(product_name)
+        else:
+            recognized.append({'name': product_name, 'group': group, 'weight': weight})
+    if not recognized:
+        return None
+    counts = Counter(item['group'] for item in recognized)
+    mix = ' + '.join(f'{group}×{counts[group]}' for group in TARGET_GROUP_ORDER if counts[group])
+    return {
+        'target_mix': mix,
+        'target_weight': sum(item['weight'] for item in recognized) / len(recognized),
+        'recognized': recognized,
+        'unrecognized': unrecognized,
+    }
 
 
 def plan_value_score(revenue, spend, new_rate, target_weight):
@@ -200,13 +243,10 @@ def _plan_week(r, suffix, plan_name):
     roi = _roi(gmv, sp)
     new_rate = new_customers / buyers if buyers else None
     quadrant = plan_quadrant(roi, new_rate) if sp > 0 else '未投放'
-    target_group, target_weight = plan_target_weight(plan_name)
     return {
         'active': sp > 0, 'spend': sp, 'gmv': gmv, 'roi': roi, 'new_rate': new_rate,
         'new_customers': new_customers, 'buyers': buyers, 'quadrant': quadrant,
         'action': plan_matrix_action(quadrant) if quadrant != '未投放' else '当周未投放',
-        'target_group': target_group, 'target_weight': target_weight,
-        'value_score': plan_value_score(gmv, sp, new_rate, target_weight) if sp > 0 else None,
     }
 
 
@@ -232,26 +272,56 @@ def build_plan_matrix(m):
     return out
 
 
-def build_plan_value(plan_matrix):
-    """汇总本周计划贡献评价，供报告自动输出 Top3 与负值计划。"""
+def build_plan_value(plan_matrix, mapping):
+    """按用户提供的计划—商品映射识别商品组合，汇总本周计划贡献评价。"""
     eligible = []
     excluded = 0
+    unmapped_active = []
+    mapped_without_new_rate = []
+    unrecognized_products = []
+    mapped_active_count = 0
     for plan in plan_matrix:
         d = plan['w1']
-        if not d['active'] or d['value_score'] is None:
+        if not d['active']:
             excluded += 1
             continue
+        products = mapping['plans'].get(plan['name'])
+        if not products:
+            excluded += 1
+            unmapped_active.append(plan['name'])
+            continue
+        mapped_active_count += 1
+        profile = product_target_profile(products)
+        if profile is None or d['new_rate'] is None:
+            excluded += 1
+            if d['new_rate'] is None:
+                mapped_without_new_rate.append(plan['name'])
+            if profile is None:
+                unrecognized_products.extend({'plan': plan['name'], 'product': p} for p in products)
+            continue
+        unrecognized_products.extend({'plan': plan['name'], 'product': p} for p in profile['unrecognized'])
+        score = plan_value_score(d['gmv'], d['spend'], d['new_rate'], profile['target_weight'])
         eligible.append({
             'name': plan['name'], 'scene': plan['scene'], 'cat': plan['cat'],
-            'target_group': d['target_group'], 'target_weight': d['target_weight'],
+            'target_group': profile['target_mix'], 'target_mix': profile['target_mix'],
+            'target_weight': profile['target_weight'],
+            'product_count': len(products), 'recognized_product_count': len(profile['recognized']),
+            'products': products, 'recognized_products': profile['recognized'],
             'revenue': d['gmv'], 'spend': d['spend'], 'new_rate': d['new_rate'],
-            'score': d['value_score'],
+            'score': score,
         })
     return {
         'formula': '推广收入×(毛利要求率-边际缓冲)×(新客率×新客目标权重+1)-2×花费',
         'gross_margin_required': GROSS_MARGIN_REQUIRED,
         'marginal_buffer': MARGINAL_BUFFER,
         'weights': NEW_CUSTOMER_TARGET_WEIGHTS,
+        'recognition_basis': '计划—商品映射中的商品名称（不识别计划名称）',
+        'allocation': mapping['allocation'],
+        'mapping_source': mapping['source'], 'mapping_updated': mapping['updated'],
+        'mapped_plan_count': len(mapping['plans']), 'mapped_active_count': mapped_active_count,
+        'unmapped_active_count': len(unmapped_active), 'unmapped_active_plans': sorted(unmapped_active),
+        'mapped_without_new_rate': sorted(mapped_without_new_rate),
+        'unrecognized_products': unrecognized_products,
         'eligible_count': len(eligible), 'excluded_count': excluded,
         'highlights': sorted(eligible, key=lambda x: (-x['score'], x['name']))[:3],
         'needs_adjustment': sorted((x for x in eligible if x['score'] < 0), key=lambda x: (x['score'], x['name'])),
@@ -357,12 +427,17 @@ def main():
     ap.add_argument('--this', default=None, help='本周文件名后缀 YYYYMMDD（该周周一）')
     ap.add_argument('--last', default=None, help='上周文件名后缀 YYYYMMDD')
     ap.add_argument('--out', default=None, help='analysis.json 输出路径')
+    ap.add_argument('--plan-product-map', default=os.environ.get(
+        'HALO_PLAN_PRODUCT_MAP',
+        os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'references', 'plan-product-map.json'))
+    ), help='计划—商品映射 JSON')
     args = ap.parse_args()
     base = args.data_dir
     if not os.path.isdir(base):
         fail(f'数据目录不存在：{base}')
     t1, t0 = (args.this, args.last) if (args.this and args.last) else detect_dates(base)
     out_path = args.out or os.path.join(os.path.dirname(os.path.abspath(__file__)), 'analysis.json')
+    plan_product_mapping = load_plan_product_map(args.plan_product_map)
 
     warnings = []
     dfs = {}
@@ -460,7 +535,7 @@ def main():
               else merge_current_plan_with_last_object(au1, au0, '人群名字'))
     au_all['分类'] = au_all['人群名字'].apply(classify_aud)
     plan_matrix = build_plan_matrix(pm)
-    plan_value = build_plan_value(plan_matrix)
+    plan_value = build_plan_value(plan_matrix, plan_product_mapping)
     optimize = {
         'kw': build_optimize(kw_m.rename(columns={'词名字/词包名字': 'name'}), 'name', 'kw'),
         'au': build_optimize(au_all.rename(columns={'人群名字': 'name'}), 'name', 'au'),

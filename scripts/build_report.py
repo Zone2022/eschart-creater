@@ -187,6 +187,20 @@ def cat_card(cat, d, unit, sub=''):
 
 def matrix_html(items):
     """计划级双周 ROI×新客率矩阵；按钮切周时点位平滑移动。"""
+    def change_ratio(cur, prev):
+        if cur is None or prev is None or prev == 0:
+            return None
+        return (cur / prev - 1) * 100
+
+    def change_chip(cur, prev):
+        if prev is None or prev == 0:
+            return '<span class="chip neu" title="本周相对上周">新增</span>' if cur is not None else '<span class="na">—</span>'
+        if cur is None:
+            return '<span class="na" title="本周无可比值">—</span>'
+        value = change_ratio(cur, prev)
+        return (f'<span class="chip {"up" if value >= 0 else "down"}" title="本周相对上周">'
+                f'{"▲" if value >= 0 else "▼"} {abs(value):.1f}%</span>')
+
     values = [a[w]['roi'] for a in items for w in ('w0', 'w1')
               if a[w]['active'] and a[w]['roi'] is not None and a[w]['new_rate'] is not None]
     x_max = max(10.0, max(values, default=10.0) * 1.10)
@@ -213,19 +227,28 @@ def matrix_html(items):
         d1, d0 = a['w1'], a['w0']
         color1 = qcolors.get(d1['quadrant'], '#978DA3')
         trend = ''
+        both_down = False
+        roi_down_pct = new_down_pct = None
         if d0['roi'] is not None and d1['roi'] is not None and d0['new_rate'] is not None and d1['new_rate'] is not None:
             if d1['roi'] - d0['roi'] < -1 and d1['new_rate'] - d0['new_rate'] < -0.20:
                 trend = ' trend-down'
             elif d1['roi'] - d0['roi'] > 1 and d1['new_rate'] - d0['new_rate'] > 0.20:
                 trend = ' trend-up'
+            both_down = d1['roi'] < d0['roi'] and d1['new_rate'] < d0['new_rate']
+            if both_down:
+                roi_down_pct = -change_ratio(d1['roi'], d0['roi'])
+                new_down_pct = -change_ratio(d1['new_rate'], d0['new_rate'])
+        decline_label = (f'ROI↓{roi_down_pct:.1f}%｜新客率↓{new_down_pct:.1f}%'
+                         if both_down and roi_down_pct is not None and new_down_pct is not None else '')
         circles += f'''<g class="matrix-point{trend}" transform="translate({ix:.1f} {iy:.1f})"
           data-name="{attr(a['name'])}" data-scene="{attr(a['scene'])}" data-cat="{attr(a['cat'])}"
+          data-both-down="{int(both_down)}"
           data-x0="{coords['w0']['x'] if coords['w0']['valid'] else ''}" data-y0="{coords['w0']['y'] if coords['w0']['valid'] else ''}" data-valid0="{int(coords['w0']['valid'])}"
           data-x1="{coords['w1']['x'] if coords['w1']['valid'] else ''}" data-y1="{coords['w1']['y'] if coords['w1']['valid'] else ''}" data-valid1="{int(coords['w1']['valid'])}"
           data-spend0="{d0['spend']}" data-roi0="{d0['roi'] if d0['roi'] is not None else ''}" data-new0="{d0['new_rate'] if d0['new_rate'] is not None else ''}" data-quadrant0="{attr(d0['quadrant'])}"
           data-spend1="{d1['spend']}" data-roi1="{d1['roi'] if d1['roi'] is not None else ''}" data-new1="{d1['new_rate'] if d1['new_rate'] is not None else ''}" data-quadrant1="{attr(d1['quadrant'])}"
           style="opacity:{1 if coords['w1']['valid'] else 0};pointer-events:{'auto' if coords['w1']['valid'] else 'none'}">
-          <title>{attr(a['name'])}</title><circle r="12" fill="{color1}" opacity=".9"/><text y="4" text-anchor="middle" font-size="10" font-weight="800" fill="#fff">{idx}</text></g>'''
+          <title>{attr(a['name'])}</title><circle r="12" fill="{color1}" opacity=".9"/><text y="4" text-anchor="middle" font-size="10" font-weight="800" fill="#fff">{idx}</text><text class="matrix-point-decline" x="16" y="-4">{decline_label}</text></g>'''
         for wk in ('w1', 'w0'):
             d = a[wk]
             if not d['active']:
@@ -233,10 +256,17 @@ def matrix_html(items):
             star = '※' if a['scene'] == '货品全站推广' else ''
             roi_text = f"{d['roi']:.2f}" if d['roi'] is not None else '—'
             new_text = f"{d['new_rate']*100:.1f}%" if d['new_rate'] is not None else '—'
+            roi_change = change_ratio(d1['roi'], d0['roi'])
+            new_change = change_ratio(d1['new_rate'], d0['new_rate'])
+            roi_change_sort = '' if roi_change is None else f'{roi_change:.12f}'
+            new_change_sort = '' if new_change is None else f'{new_change:.12f}'
+            spend_trend = change_chip(d1['spend'], d0['spend']) if wk == 'w1' else '<span class="na">—</span>'
+            plan_decline = f'<span class="matrix-decline-note">{decline_label}</span>' if decline_label else ''
             color = qcolors.get(d['quadrant'], '#978DA3')
-            table_bodies[wk] += f'''<tr><td class="r">{idx}</td><td style="font-weight:600" title="{attr(a['name'])}">{html_lib.escape(cut(a['name'], 30))}</td>
-              <td>{tag(a['cat'])}</td><td class="r">{money(d['spend'])}</td><td class="r">{roi_text}{star}</td>
-              <td class="r">{new_text}</td><td><span class="matrix-tag" style="--q:{color}">{d['quadrant']}</span></td></tr>'''
+            table_bodies[wk] += f'''<tr data-both-down="{int(both_down)}"><td class="r" data-sort="{idx}">{idx}</td><td data-sort="{attr(a['name'].lower())}" style="font-weight:600" title="{attr(a['name'])}">{html_lib.escape(cut(a['name'], 30))}{plan_decline}</td>
+              <td data-sort="{attr(a['cat'])}">{tag(a['cat'])}</td><td class="r" data-sort="{d['spend']}">{money(d['spend'])}<span class="matrix-spend-trend">{spend_trend}</span></td><td class="r" data-sort="{d['roi'] if d['roi'] is not None else ''}">{roi_text}{star}</td>
+              <td class="r" data-sort="{roi_change_sort}">{change_chip(d1['roi'], d0['roi'])}</td><td class="r" data-sort="{d['new_rate'] if d['new_rate'] is not None else ''}">{new_text}</td>
+              <td class="r" data-sort="{new_change_sort}">{change_chip(d1['new_rate'], d0['new_rate'])}</td><td data-sort="{attr(d['quadrant'])}"><span class="matrix-tag" style="--q:{color}">{d['quadrant']}</span></td></tr>'''
         pending_counts['w0'] = pending_counts.get('w0', 0) + int(d0['active'] and not coords['w0']['valid'])
         pending_counts['w1'] = pending_counts.get('w1', 0) + int(d1['active'] and not coords['w1']['valid'])
     svg = f'''<svg class="matrix-svg" viewBox="0 0 {w} {h}" role="img" aria-label="推广计划波士顿矩阵">
@@ -257,13 +287,25 @@ def matrix_html(items):
       {circles}</svg>'''
     period1 = f"{META['this']['start'][5:]}~{META['this']['end'][5:]}"
     period0 = f"{META['last']['start'][5:]}~{META['last']['end'][5:]}"
-    controls = f'''<div class="matrix-controls" role="group" aria-label="选择计划矩阵周次">
+    decline_count = sum(1 for a in items if a['w1']['roi'] is not None and a['w0']['roi'] is not None
+                        and a['w1']['new_rate'] is not None and a['w0']['new_rate'] is not None
+                        and a['w1']['roi'] < a['w0']['roi'] and a['w1']['new_rate'] < a['w0']['new_rate'])
+    controls = f'''<div class="matrix-controls" role="group" aria-label="选择计划矩阵周次与筛选条件">
       <button type="button" class="matrix-week active" data-week="w1" aria-pressed="true">本周 {period1}</button>
       <button type="button" class="matrix-week" data-week="w0" aria-pressed="false">上周 {period0}</button>
-      <span class="matrix-hint">点击切换周次；红框=ROI 下降&gt;1 且新客率下降&gt;20pp，蓝框为相反方向的同幅度上升</span></div>'''
-    table = (f'<table class="matrix-table"><thead><tr><th class="r">编号</th><th>计划</th><th>分类</th><th class="r">当周花费</th>'
-             '<th class="r">ROI</th><th class="r">新客率</th><th>象限</th></tr></thead>'
-             f'<tbody data-week="w1">{table_bodies["w1"]}</tbody><tbody data-week="w0" hidden>{table_bodies["w0"]}</tbody></table>')
+      <button type="button" class="matrix-decline-filter" data-count="{decline_count}" aria-pressed="false">仅看 ROI、新客率均下降计划</button>
+      <span class="matrix-hint">点击切换周次；变化率均为本周相对上周；红框=ROI 下降&gt;1 且新客率下降&gt;20pp，蓝框为相反方向的同幅度上升</span></div>'''
+    table = (f'''<div class="matrix-table-wrap"><table class="matrix-table"><thead><tr>
+             <th class="r sortable" data-col="0" data-type="number" aria-sort="none"><button type="button" class="matrix-sort">编号<span class="sort-icon" aria-hidden="true"></span></button></th>
+             <th class="sortable" data-col="1" data-type="text" aria-sort="none"><button type="button" class="matrix-sort">计划<span class="sort-icon" aria-hidden="true"></span></button></th>
+             <th class="sortable" data-col="2" data-type="text" aria-sort="none"><button type="button" class="matrix-sort">分类<span class="sort-icon" aria-hidden="true"></span></button></th>
+             <th class="r sortable" data-col="3" data-type="number" aria-sort="none"><button type="button" class="matrix-sort">当周花费<span class="sort-icon" aria-hidden="true"></span></button></th>
+             <th class="r sortable" data-col="4" data-type="number" aria-sort="none"><button type="button" class="matrix-sort">ROI<span class="sort-icon" aria-hidden="true"></span></button></th>
+             <th class="r sortable" data-col="5" data-type="number" aria-sort="none"><button type="button" class="matrix-sort">ROI变化率<span class="sort-icon" aria-hidden="true"></span></button></th>
+             <th class="r sortable" data-col="6" data-type="number" aria-sort="none"><button type="button" class="matrix-sort">新客率<span class="sort-icon" aria-hidden="true"></span></button></th>
+             <th class="r sortable" data-col="7" data-type="number" aria-sort="none"><button type="button" class="matrix-sort">新客率变化率<span class="sort-icon" aria-hidden="true"></span></button></th>
+             <th class="sortable" data-col="8" data-type="text" aria-sort="none"><button type="button" class="matrix-sort">象限<span class="sort-icon" aria-hidden="true"></span></button></th></tr></thead>
+             <tbody data-week="w1">{table_bodies["w1"]}</tbody><tbody data-week="w0" hidden>{table_bodies["w0"]}</tbody></table></div>''')
     pending = (f'<div class="note matrix-pending" data-pending0="{pending_counts.get("w0", 0)}" '
                f'data-pending1="{pending_counts.get("w1", 0)}"></div>')
     return controls + f'<div class="matrix-shell">{svg}<div class="matrix-tooltip" role="tooltip"></div></div>' + table + pending
@@ -274,12 +316,14 @@ plan_matrix_html = matrix_html(PLAN_MATRIX)
 
 def plan_value_rows(items):
     if not items:
-        return '<tr><td colspan="7" class="na" style="text-align:center">无符合条件的计划</td></tr>'
+        return '<tr><td colspan="8" class="na" style="text-align:center">无符合条件的计划</td></tr>'
     rows = ''
     for idx, a in enumerate(items, 1):
         score_color = '#9B4A45' if a['score'] < 0 else '#467A3C'
+        product_title = '；'.join(a.get('products', []))
+        target_mix = a.get('target_mix', a.get('target_group', '—'))
         rows += f'''<tr><td class="r">{idx}</td><td style="font-weight:600" title="{attr(a['name'])}">{html_lib.escape(cut(a['name'], 30))}</td>
-          <td>{a['target_group']}</td><td class="r">{a['target_weight']:.1f}</td><td class="r">{money(a['revenue'])}</td>
+          <td title="{attr(product_title)}">{target_mix}</td><td class="r">{a.get('product_count', 0)}</td><td class="r">{a['target_weight']:.2f}</td><td class="r">{money(a['revenue'])}</td>
           <td class="r">{a['new_rate'] * 100:.1f}%</td><td class="r" style="font-weight:800;color:{score_color}">{money(a['score'])}</td></tr>'''
     return rows
 
@@ -289,15 +333,15 @@ def plan_value_section(data):
         return ''
     formula = html_lib.escape(data['formula'])
     eligible = data.get('eligible_count', 0)
-    excluded = data.get('excluded_count', 0)
-    head = ('<thead><tr><th class="r">排名</th><th>计划</th><th>名称识别</th><th class="r">目标权重</th>'
+    unmapped_active = data.get('unmapped_active_count', 0)
+    head = ('<thead><tr><th class="r">排名</th><th>计划</th><th>商品组合识别</th><th class="r">商品数</th><th class="r">综合权重</th>'
             '<th class="r">推广收入</th><th class="r">新客率</th><th class="r">评价指标</th></tr></thead>')
     highlights = f'''<div class="card reveal"><h3>业务亮点 <span style="font-size:12px;font-weight:600;color:#978DA3">指标最高 3 个计划</span></h3>
-      <table>{head}<tbody>{plan_value_rows(data.get('highlights', []))}</tbody></table></div>'''
+      <div class="plan-value-table-wrap"><table class="plan-value-table">{head}<tbody>{plan_value_rows(data.get('highlights', []))}</tbody></table></div></div>'''
     needs_adjustment = f'''<div class="card reveal"><h3>需要调整 <span style="font-size:12px;font-weight:600;color:#978DA3">评价指标 &lt; 0</span></h3>
-      <table>{head}<tbody>{plan_value_rows(data.get('needs_adjustment', []))}</tbody></table></div>'''
-    return f'''<div class="note" style="margin:14px 0 10px"><b>计划贡献评价（本周）：</b>{formula}。毛利要求率=50%，边际缓冲=0；名称识别 US猫/US狗/CN猫/CN狗的目标权重依次为 1.5/1.8/1.8/2.0。已计算 {eligible} 个计划，未命中名称分类或无新客率的 {excluded} 个计划不参与计算。</div>
-      <div class="grid g2">{highlights}{needs_adjustment}</div>'''
+      <div class="plan-value-table-wrap"><table class="plan-value-table">{head}<tbody>{plan_value_rows(data.get('needs_adjustment', []))}</tbody></table></div></div>'''
+    return f'''<div class="note" style="margin:14px 0 10px"><b>计划贡献评价（本周）：</b>{formula}。只识别用户提供映射中的商品名称：含“美国”记 US，否则记 CN；猫优先于狗/犬，US猫/US狗/CN猫/CN狗权重依次为 1.5/1.8/1.8/2.0。同计划多个商品按商品数等额分摊，等价于使用商品权重算术平均；悬停“商品组合识别”可查看完整商品名。已计算 {eligible} 个计划，当前投放但未提供商品映射的 {unmapped_active} 个计划不参与计算。</div>
+      <div class="plan-value-grid">{highlights}{needs_adjustment}</div>'''
 
 
 plan_value_html = plan_value_section(PLAN_VALUE)
@@ -359,7 +403,7 @@ OPT = J.get('optimize', {'kw': [], 'au': [], 'plan': []})
 
 def opt_table(items, kind):
     if not items:
-        return '<div style="font-size:12.5px;color:#978DA3;padding:6px 0">本周无达花费门槛且 ROI<5 的对象。</div>'
+        return '<div style="font-size:12.5px;color:#978DA3;padding:6px 0">本周无满足花费、ROI 与新客率筛选条件的对象。</div>'
     show_new_rate = kind in ('au', 'plan')
     has_plan_link = kind in ('kw', 'au')
     head = ('<thead><tr><th>名称</th><th>分类</th>'
@@ -396,7 +440,9 @@ def opt_table(items, kind):
 
 
 def opt_card(kind, title, unit):
-    items = [i for i in OPT[kind] if i['sp0'] > 0]
+    items = [i for i in OPT[kind]
+             if i['sp0'] > 0
+             and (kind == 'kw' or i.get('new_rate') is None or i['new_rate'] <= 0.50)]
     sp = sum(i['sp1'] for i in items)
     return (f'<div class="card reveal"><h3>{title}'
             f'<span style="font-size:12px;font-weight:600;color:#978DA3;margin-left:8px">{len(items)} {unit}，合计 {wan(sp)} 元</span></h3>'
@@ -426,13 +472,19 @@ ul.take li::before{content:"";position:absolute;left:2px;top:13px;width:6px;heig
 .matrix-controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 10px}
 .matrix-week{appearance:none;border:1px solid #D9CFE3;background:#fff;color:#592688;border-radius:999px;padding:7px 14px;font-size:12.5px;font-weight:800;cursor:pointer;transition:.2s ease}
 .matrix-week:hover{border-color:#592688}.matrix-week.active{background:#592688;color:#fff;border-color:#592688;box-shadow:0 5px 14px #59268828}
+.matrix-decline-filter{appearance:none;border:1px solid #E2B9B6;background:#fff;color:#9B4A45;border-radius:999px;padding:7px 14px;font-size:12.5px;font-weight:800;cursor:pointer;transition:.2s ease}.matrix-decline-filter:hover,.matrix-decline-filter.active{background:#FBEDEC;border-color:#9B4A45}.matrix-decline-filter.active{box-shadow:0 5px 14px #9B4A4522}
 .matrix-hint{font-size:11.5px;color:#978DA3;margin-left:4px}
 .matrix-shell{position:relative}.matrix-svg{display:block;width:100%;height:auto;margin:4px 0 14px;border:1px solid var(--border,#E9E3F0);border-radius:12px;background:#fff}
 .matrix-point{cursor:help;transition:opacity .3s ease}.matrix-point circle{transition:fill .35s ease,stroke .2s ease;stroke:#fff;stroke-width:2}.matrix-point:hover circle{stroke:#2A2333;stroke-width:3}.matrix-point.trend-down circle,.matrix-point.trend-down:hover circle{stroke:#E53935;stroke-width:4}.matrix-point.trend-up circle,.matrix-point.trend-up:hover circle{stroke:#2979FF;stroke-width:4}
+.matrix-point-decline{display:none;font-size:11px;font-weight:800;fill:#9B4A45;paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round}.matrix-filter-active .matrix-point[data-both-down="0"]{opacity:0!important;pointer-events:none!important}.matrix-filter-active .matrix-point-decline{display:block}.matrix-decline-note{display:none;margin-top:3px;font-size:10.5px;font-weight:700;color:#9B4A45;white-space:nowrap}.matrix-filter-active .matrix-decline-note{display:block}.matrix-filter-active .matrix-table tr[data-both-down="0"]{display:none}.matrix-spend-trend{display:inline-block;margin-left:4px;vertical-align:middle}.matrix-spend-trend .chip{font-size:10px;padding:2px 5px}
 .matrix-tooltip{position:absolute;z-index:10;display:none;max-width:340px;padding:9px 11px;border-radius:9px;background:#2A2333;color:#fff;box-shadow:0 10px 28px #2A233344;font-size:12px;line-height:1.55;pointer-events:none;transform:translate(12px,12px)}
 .matrix-tooltip b{display:block;font-size:12.5px;margin-bottom:2px}.matrix-tooltip.show{display:block}
-.matrix-table tbody[hidden]{display:none}.matrix-pending:empty{display:none}
+.matrix-table-wrap{overflow-x:auto;margin-top:2px}.matrix-table{min-width:1060px}.matrix-table tbody[hidden]{display:none}.matrix-pending:empty{display:none}
+.matrix-table th.sortable{padding:0}.matrix-sort{appearance:none;width:100%;display:flex;align-items:center;justify-content:inherit;gap:4px;border:0;background:transparent;color:inherit;font:inherit;font-weight:800;padding:10px 8px;cursor:pointer;white-space:nowrap}
+.matrix-table th.r .matrix-sort{justify-content:flex-end}.sort-icon{position:relative;display:inline-block;width:8px;height:13px;flex:0 0 8px;opacity:.45}.sort-icon::before,.sort-icon::after{position:absolute;left:0;font-size:7px;line-height:1}.sort-icon::before{content:'▲';top:0}.sort-icon::after{content:'▼';bottom:0}
+.matrix-table th[aria-sort="ascending"] .sort-icon{opacity:1}.matrix-table th[aria-sort="ascending"] .sort-icon::after{opacity:.18}.matrix-table th[aria-sort="descending"] .sort-icon{opacity:1}.matrix-table th[aria-sort="descending"] .sort-icon::before{opacity:.18}.matrix-sort:hover,.matrix-sort:focus-visible{color:#592688;background:#F4EEF9;outline:none}
 .matrix-tag{display:inline-block;padding:3px 7px;border-radius:999px;color:var(--q);background:color-mix(in srgb,var(--q) 10%,white);font-weight:800;white-space:nowrap}
+.plan-value-grid{display:grid;gap:12px}.plan-value-table-wrap{overflow-x:auto}.plan-value-table{min-width:900px}
 .sku-fee-chart{--label:230px;margin-top:4px}.sku-fee-axis{margin-left:calc(var(--label) + 72px);display:flex;justify-content:space-between;color:#978DA3;font-size:10.5px;border-bottom:1px solid #E9E3F0;padding-bottom:4px}
 .sku-fee-row{display:grid;grid-template-columns:var(--label) 1fr;gap:12px;align-items:center;padding:8px 0;border-bottom:1px dashed #E9E3F0}.sku-fee-row:last-child{border-bottom:none}
 .sku-name{font-size:12.5px;font-weight:700;color:#2A2333;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.sku-bars{display:grid;gap:4px}
@@ -476,7 +528,29 @@ js = '''<script>
     requestAnimationFrame(step);
   }
   var matrixWeek='w1';
+  var matrixDownFilter=false;
   var quadrantColors={'明星计划':'#467A3C','效率计划':'#592688','拉新潜力':'#CC7D11','待调整':'#9B4A45','待观察':'#978DA3'};
+  function resetMatrixSort(){
+    document.querySelectorAll('.matrix-table th.sortable').forEach(function(th){th.setAttribute('aria-sort','none');});
+  }
+  function sortMatrixTable(th){
+    var table=th.closest('.matrix-table'),tbody=table&&table.querySelector('tbody[data-week="'+matrixWeek+'"]');
+    if(!tbody)return;
+    var col=parseInt(th.dataset.col,10),type=th.dataset.type||'text';
+    var direction=th.getAttribute('aria-sort')==='ascending'?'descending':'ascending';
+    resetMatrixSort();th.setAttribute('aria-sort',direction);
+    var factor=direction==='ascending'?1:-1;
+    var rows=Array.prototype.slice.call(tbody.rows);
+    rows.sort(function(a,b){
+      var av=a.cells[col].dataset.sort||'',bv=b.cells[col].dataset.sort||'';
+      var aEmpty=av==='',bEmpty=bv==='';
+      if(aEmpty||bEmpty){if(aEmpty&&bEmpty)return 0;return aEmpty?1:-1;}
+      var result=type==='number'?(parseFloat(av)-parseFloat(bv)):av.localeCompare(bv,'zh-CN',{numeric:true,sensitivity:'base'});
+      if(result===0)result=parseFloat(a.cells[0].dataset.sort)-parseFloat(b.cells[0].dataset.sort);
+      return result*factor;
+    });
+    rows.forEach(function(row){tbody.appendChild(row);});
+  }
   function animateMatrixPoint(el,x,y){
     if(el._matrixRaf) cancelAnimationFrame(el._matrixRaf);
     var m=(el.getAttribute('transform')||'').match(/translate\\(([-\\d.]+)[ ,]+([-\\d.]+)\\)/);
@@ -490,6 +564,7 @@ js = '''<script>
   }
   function setMatrixWeek(week){
     matrixWeek=week;var n=week.slice(1);
+    resetMatrixSort();
     document.querySelectorAll('.matrix-week').forEach(function(b){var on=b.dataset.week===week;b.classList.toggle('active',on);b.setAttribute('aria-pressed',on?'true':'false');});
     document.querySelectorAll('.matrix-table tbody').forEach(function(tb){tb.hidden=tb.dataset.week!==week;});
     document.querySelectorAll('.matrix-point').forEach(function(p){
@@ -504,7 +579,17 @@ js = '''<script>
     if(note){var count=parseInt(note.dataset['pending'+n]||'0',10);note.textContent=count?'当周有 '+count+' 个计划因成交人数为 0 无法计算新客率，暂列待观察且不显示矩阵点。':'';}
     var tip=document.querySelector('.matrix-tooltip');if(tip)tip.classList.remove('show');
   }
+  function setMatrixDownFilter(active){
+    matrixDownFilter=active;
+    var plan=document.getElementById('plan'),button=document.querySelector('.matrix-decline-filter');
+    if(plan)plan.classList.toggle('matrix-filter-active',active);
+    if(button){button.classList.toggle('active',active);button.setAttribute('aria-pressed',active?'true':'false');}
+    var tip=document.querySelector('.matrix-tooltip');if(tip)tip.classList.remove('show');
+  }
   document.querySelectorAll('.matrix-week').forEach(function(b){b.addEventListener('click',function(){setMatrixWeek(b.dataset.week);});});
+  var downFilterButton=document.querySelector('.matrix-decline-filter');
+  if(downFilterButton)downFilterButton.addEventListener('click',function(){setMatrixDownFilter(!matrixDownFilter);});
+  document.querySelectorAll('.matrix-table th.sortable').forEach(function(th){th.querySelector('.matrix-sort').addEventListener('click',function(){sortMatrixTable(th);});});
   document.querySelectorAll('.matrix-point').forEach(function(p){
     var shell=p.closest('.matrix-shell'),tip=shell&&shell.querySelector('.matrix-tooltip');
     function tooltipText(){
@@ -583,7 +668,7 @@ html = f'''<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta n
 </div>
 </section>
 
-<section id="keyword"><div class="shead reveal"><div class="overline">05 · KEYWORDS</div><h2><svg class="sic" viewBox="0 0 24 24" fill="none" stroke="#592688" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21"/></svg>关键词</h2><div class="h2sub">保留品牌词/竞品词/行业词/智能词包宏观统计；后续诊断围绕计划矩阵中的问题计划提出关键词调整方向</div></div>
+<section id="keyword"><div class="shead reveal"><div class="overline">05 · KEYWORDS</div><h2><svg class="sic" viewBox="0 0 24 24" fill="none" stroke="#592688" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21"/></svg>关键词</h2><div class="h2sub">保留品牌词/竞品词/行业词/智能词包宏观统计；按源报表中的计划 ID 与计划名称呈现对象表现</div></div>
 <div class="grid g4">{kw_cards}</div>
 <div class="card reveal" style="margin-top:14px">
 <h3>计划导向诊断</h3>
@@ -592,7 +677,7 @@ html = f'''<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta n
 </div>
 </section>
 
-<section id="audience"><div class="shead reveal"><div class="overline">06 · AUDIENCES</div><h2><svg class="sic" viewBox="0 0 24 24" fill="none" stroke="#592688" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="3.5"/><path d="M2.5 20c.8-3.5 3-5.5 5.5-5.5s4.7 2 5.5 5.5"/><circle cx="17" cy="9" r="2.5"/><path d="M15.5 14.6c2.6.3 4.5 2.2 5.1 5.4"/></svg>人群</h2><div class="h2sub">保留品牌/竞品/行业人群宏观统计；后续诊断围绕计划矩阵中的问题计划提出人群调整方向</div></div>
+<section id="audience"><div class="shead reveal"><div class="overline">06 · AUDIENCES</div><h2><svg class="sic" viewBox="0 0 24 24" fill="none" stroke="#592688" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="3.5"/><path d="M2.5 20c.8-3.5 3-5.5 5.5-5.5s4.7 2 5.5 5.5"/><circle cx="17" cy="9" r="2.5"/><path d="M15.5 14.6c2.6.3 4.5 2.2 5.1 5.4"/></svg>人群</h2><div class="h2sub">保留品牌/竞品/行业人群宏观统计；按源报表中的计划 ID 与计划名称呈现对象表现</div></div>
 <div class="grid g3">{au_cards}</div>
 <div class="card reveal" style="margin-top:14px">
 <h3>计划导向诊断</h3>
@@ -609,7 +694,7 @@ html = f'''<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta n
 </div>
 </section>
 
-<section id="optimize"><div class="shead reveal"><div class="overline">08 · OPTIMIZE</div><h2><svg class="sic" viewBox="0 0 24 24" fill="none" stroke="#592688" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4.5 4.5 0 0 0-6.1 5.6L3 17.4V21h3.6l5.5-5.6a4.5 4.5 0 0 0 5.6-6.1l-2.6 2.6-2.1-2.1 2.6-2.6z"/></svg>ROI&lt;5 优化清单</h2><div class="h2sub">判定标准（8 月方案）：单项合格线 ROI≥5；以下为本周花费≥500 元（词）/≥1,000 元（人群、计划）且 ROI&lt;5 的对象</div></div>
+<section id="optimize"><div class="shead reveal"><div class="overline">08 · OPTIMIZE</div><h2><svg class="sic" viewBox="0 0 24 24" fill="none" stroke="#592688" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4.5 4.5 0 0 0-6.1 5.6L3 17.4V21h3.6l5.5-5.6a4.5 4.5 0 0 0 5.6-6.1l-2.6 2.6-2.1-2.1 2.6-2.6z"/></svg>ROI&lt;5 优化清单</h2><div class="h2sub">判定标准（8 月方案）：本周花费≥500 元（词）/≥1,000 元（人群、计划）且 ROI&lt;5；人群与计划另剔除新客率&gt;50%的记录</div></div>
 {opt_html}
 <div class="note">³ 新客率 = 成交新客数 ÷ 成交人数（人群维度口径）；人群包按分类适用不同评价标准——拉新类包需 新客率≥50% 且 ROI≥5；竞品拦截人群以三件套评估、新客率作代理指标；品牌人群看 ROI 与承接客单价。</div>
 <div class="callout" style="margin-top:12px">{INS['optimize']}</div>
